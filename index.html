@@ -3,57 +3,97 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forbidden Sequence</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        padding: 0;
-      }
-      h1 {
-        color: #333;
-      }
-      form {
-        margin-bottom: 20px;
-      }
-      input {
-        padding: 10px;
-        font-size: 16px;
-        margin-right: 10px;
-        width: 200px;
-      }
-      button {
-        padding: 10px;
-        font-size: 16px;
-      }
-      #output {
-        margin-top: 20px;
-        max-height: 400px;
-        overflow-y: auto;
-        border: 1px solid #ccc;
-        padding: 10px;
-      }
-      .line {
-        margin: 5px 0;
-      }
-      .captcha {
-        color: red;
-        font-weight: bold;
-      }
-    </style>
     <script
       type="text/javascript"
       src="https://b82b1763d1c3.eu-west-3.captcha-sdk.awswaf.com/b82b1763d1c3/jsapi.js"
       defer
     ></script>
+    <script type="text/javascript" src="./config.js" defer></script>
+    <title>Sequence Generator</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      #output {
+        margin-top: 20px;
+        font-family: monospace;
+        white-space: pre-wrap;
+      }
+    </style>
+    <script type="text/javascript">
+      let captchaResolved = false;
+      let currentIndex = 1;
+
+      function showMyCaptcha() {
+        var container = document.querySelector("#my-captcha-container");
+
+        AwsWafCaptcha.renderCaptcha(container, {
+          apiKey: window.WAF_API_KEY,
+          onSuccess: captchaExampleSuccessFunction,
+          onError: captchaExampleErrorFunction,
+        });
+      }
+
+      function captchaExampleSuccessFunction(wafToken) {
+        captchaResolved = true;
+        document.getElementById("numberForm").style.display = "block";
+        continueSequence();
+      }
+
+      function captchaExampleErrorFunction(error) {
+        alert("Captcha verification failed. Please try again.");
+      }
+
+      function continueSequence() {
+        const numberInput = document.getElementById("number");
+        const N = parseInt(numberInput.value);
+        const outputDiv = document.getElementById("output");
+
+        document.getElementById("numberForm").style.display = "none";
+
+        for (let i = currentIndex; i <= N; i++) {
+          (async function () {
+            try {
+              const response = await fetch(
+                "https://api.prod.jcloudify.com/whoami"
+              );
+              if (response.status === 403) {
+                outputDiv.textContent += `${i}. Forbidden\n`;
+              } else if (response.status === 405) {
+                if (!captchaResolved) {
+                  document.getElementById(
+                    "my-captcha-container"
+                  ).style.display = "block";
+                  showMyCaptcha();
+                  currentIndex = i;
+                  outputDiv.textContent += `${i}. Please solve the captcha.\n`;
+                  return;
+                }
+              }
+            } catch (error) {
+              console.error("Error fetching the API:", error);
+            }
+
+            if (captchaResolved) {
+              outputDiv.textContent += `${i}. Resolved\n`;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          })();
+        }
+      }
+    </script>
   </head>
   <body>
-    <h1>Forbidden Sequence</h1>
+    <h1>Generate Sequence</h1>
+
     <form id="numberForm">
+      <label for="number">Enter a number (1 to 1000): </label>
       <input
         type="number"
-        id="numberInput"
-        placeholder="Enter a number (1-1000)"
+        id="number"
+        name="number"
         min="1"
         max="1000"
         required
@@ -61,77 +101,62 @@
       <button type="submit">Submit</button>
     </form>
 
+    <div id="my-captcha-container" style="display: none"></div>
+
     <div id="output"></div>
 
     <script>
-      const form = document.getElementById("numberForm");
-      const outputDiv = document.getElementById("output");
+      document
+        .getElementById("numberForm")
+        .addEventListener("submit", async function (event) {
+          event.preventDefault();
 
-      let captchaResolved = false;
+          const numberInput = document.getElementById("number");
+          const N = parseInt(numberInput.value);
 
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
+          if (N < 1 || N > 1000) {
+            alert("Please enter a valid number between 1 and 1000.");
+            return;
+          }
 
-        const numberInput = document.getElementById("numberInput");
-        const N = parseInt(numberInput.value, 10);
+          const outputDiv = document.getElementById("output");
+          outputDiv.textContent = "";
 
-        if (isNaN(N) || N < 1 || N > 1000) {
-          alert("Please enter a valid number between 1 and 1000.");
-          return;
-        }
+          document.getElementById("numberForm").style.display = "none";
 
-        outputDiv.innerHTML = ""; // Clear output
+          for (let i = 1; i <= N; i++) {
+            try {
+              const response = await fetch(
+                "https://api.prod.jcloudify.com/whoami"
+              );
+              if (response.status === 403) {
 
-        await processSequence(1, N);
-      });
-
-      async function processSequence(start, end) {
-        for (let i = start; i <= end; i++) {
-          try {
-            const response = await fetch(
-              "https://api.prod.jcloudify.com/whoami"
-            );
-
-            if (response.status === 403) {
-              const data = await response.json();
-              if (data.captcha && !captchaResolved) {
-                const captchaMessage = document.createElement("div");
-                captchaMessage.textContent =
-                  "Captcha required. Please resolve it to continue.";
-                captchaMessage.classList.add("captcha");
-                outputDiv.appendChild(captchaMessage);
-
-                AWSWAFCaptcha.render();
-                await new Promise((resolve) => {
-                  AWSWAFCaptcha.onSuccess(() => {
-                    captchaResolved = true;
-                    alert("Captcha resolved. Resuming sequence...");
-                    captchaMessage.remove();
-                    resolve();
-                  });
-                });
-
-                await processSequence(i, end); // Resume sequence
-                return;
+                outputDiv.textContent += `${i}. Forbidden\n`;
+              } else if (response.status === 405) {
+               
+                if (!captchaResolved) {
+                  document.getElementById(
+                    "my-captcha-container"
+                  ).style.display = "block";
+                  showMyCaptcha();
+                  currentIndex = i;
+                  outputDiv.textContent += `${i}. Please solve the captcha.\n`;
+                  break; 
+                }
               }
+            } catch (error) {
+              console.error("Error fetching the API:", error);
             }
 
-            const line = document.createElement("div");
-            line.textContent = `${i}. Forbidden`;
-            line.classList.add("line");
-            outputDiv.appendChild(line);
+            if (captchaResolved) {
+              outputDiv.textContent += `${i}. Resolved\n`;
+            } else {
+              outputDiv.textContent += `${i}. Forbidden\n`;
+            }
 
-            await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second delay
-          } catch (error) {
-            console.error("Error during request:", error);
-            const errorLine = document.createElement("div");
-            errorLine.textContent = `Error at line ${i}. Stopping sequence.`;
-            errorLine.classList.add("line");
-            outputDiv.appendChild(errorLine);
-            break;
+            await new Promise((resolve) => setTimeout(resolve, 1000));
           }
-        }
-      }
+        });
     </script>
   </body>
 </html>
